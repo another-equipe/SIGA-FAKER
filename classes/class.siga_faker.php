@@ -1,8 +1,8 @@
 
 <?php
 
-include __DIR__."/class.candidate.php";
-include __DIR__."/class.mocker.php";
+include_once __DIR__."/class.candidate.php";
+include_once __DIR__."/class.mocker.php";
 
 define("CANDIDATES_POST_TYPE_SLUG", "c_consultores");
 define("DEFAULT_USER_PASS", "Savecash@2022");
@@ -17,19 +17,25 @@ define("CANDIDATE_HIERARQUIES", [
 class SIGAFaker{
 
     public function activate(){
-        $environment = (strpos($_SERVER['REQUEST_URI'], 'dev') > (-1)) ? "DEV" : "PRODUCTION";
+        $environment = strpos($_SERVER['HTTP_HOST'], 'dev') ? "DEV" : "PRODUCTION";
         
-        if ($environment != "DEV") exit;
+        if ($environment == "PRODUCTION"){
+            echo "Plugin pode ser ativado apenas em ambiente de teste";
+            return;   
+        }
 
-        $this->delete_candidates_and_users();
+        $mocker = new Mocker("e53c1200", "2496b170");
+        $mock = $mocker->get_mock(1000);
 
-        $string = file_get_contents(__DIR__."/../siga_fake.json");
-        $mock = json_decode($string,true);
-
-        //$mocker = new Mocker("e53c1200", "cdebf9a0");
-        //$mock = $mocker->get_mock(10);
+        if (sizeof($mock) == 0) {
+            $string = file_get_contents(__DIR__."/../default_fake_data.json");
+            $mock = json_decode($string, true);
+        }
         
+        $mock = $this->balance_candidates($mock);
         $this->set_candidates_superiors_and_recruiters($mock);
+        
+        $this->delete_candidates_and_users();
 
         foreach ($mock as $fake_candidate) {
             $candidate = new Candidate($fake_candidate);
@@ -235,6 +241,41 @@ class SIGAFaker{
         }
     }
 
+    private function balance_candidates($candidates_arr){
+        $hired_directors = array_slice(array_filter($candidates_arr, function($candidate){
+            return ($candidate["c_vaga"] == "diretor" && $candidate["c_status"] == "contratado");
+        }), 0, 4);
+        
+        $hired_liders = array_slice(array_filter($candidates_arr, function($candidate){
+            return ($candidate["c_vaga"] == "lider" && $candidate["c_status"] == "contratado");
+        }), 0, sizeof($hired_directors) * 3);
+    
+        $hired_managers = array_slice(array_filter($candidates_arr, function($candidate){
+            return ($candidate["c_vaga"] == "gerente" && $candidate["c_status"] == "contratado");
+        }), 0, sizeof($hired_liders) * 3);
+    
+        $hired_supervisors = array_slice(array_filter($candidates_arr, function($candidate){
+            return ($candidate["c_vaga"] == "supervisor" && $candidate["c_status"] == "contratado");
+        }), 0, sizeof($hired_managers) * 3);
+    
+        $hired_consultors = array_slice(array_filter($candidates_arr, function($candidate){
+            return ($candidate["c_vaga"] == "consultor" && $candidate["c_status"] == "contratado");
+        }), 0, sizeof($hired_supervisors) * 3);
+    
+        $unhired_candidates = array_filter($candidates_arr, function($candidate){
+            return ($candidate["c_status"] != "contratado");
+        });
+    
+        return [
+            ...$unhired_candidates, 
+            ...$hired_directors,
+            ...$hired_liders,
+            ...$hired_managers,
+            ...$hired_supervisors,
+            ...$hired_consultors
+        ];
+    }
+
     private function create_post($post_type_slug, $post_data){
         $meta_fields = [];
 
@@ -244,7 +285,7 @@ class SIGAFaker{
 
         $meta_fields["is_fake"] = true;
 
-        $postarr = [
+        $post = [
             "post_title" =>  $post_data["post_title"] ?? "",
             "post_content" => $post_data["post_content"] ?? "",
             "post_status" =>  $post_data["post_status"] ?? "publish",
@@ -252,6 +293,6 @@ class SIGAFaker{
             "meta_input" => $meta_fields
         ];
 
-        wp_insert_post($postarr);
+        wp_insert_post($post);
     }
 }
